@@ -36,5 +36,3 @@ for edge in a_tree.ddpTree.preorder_edge_iter():
 		break
 
 a_tree.tree_as_newick(outfile=out_file)
-
-

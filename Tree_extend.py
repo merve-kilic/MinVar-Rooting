@@ -1,18 +1,19 @@
-from dendropy import Tree
+#from dendropy import Tree
+from treeswift import *
 import sys
 import math
 
 class Tree_extend(object):
         def __init__(self, ddpTree = None, tree_file = None, schema = "newick"):
                 if tree_file:
-                    self.ddpTree = Tree.get_from_path(tree_file,schema,preserve_underscores=True)
+                    self.ddpTree = read_tree(tree_file,schema)
                 else:
                     self.ddpTree = ddpTree
 
         def Bottomup_label(self):
             # assign each node a label so that we can later relate to it
             i = 0
-            for node in self.ddpTree.postorder_node_iter():
+            for node in self.ddpTree.traverse_postorder():
                 if node.is_leaf():
                     node.name = 'L' + str(i)
                 else:
@@ -23,12 +24,12 @@ class Tree_extend(object):
             # assign each node a label so that we can later relate to it
             i = 0
 
-            for node in self.ddpTree.preorder_node_iter():
+            for node in self.ddpTree.traverse_preorder():
                 if node.is_leaf():
                     if label_type == "all" or label_type == "leaves":
                         node.name = 'L' + str(i)
                     else:
-                        node.name = node.taxon.label
+                        node.name = node.label
                 else:
                     if label_type == "all" or label_type == "internal":
                         node.name = 'I' + str(i)
@@ -37,12 +38,12 @@ class Tree_extend(object):
                 i += 1
 
         def Bottomup_update(self):
-            for node in self.ddpTree.postorder_node_iter():
+            for node in self.ddpTree.traverse_postorder():
                 self.Node_init(node)
                 self.bUp_update(node)
             
         def Topdown_update(self):
-            for node in self.ddpTree.preorder_node_iter():
+            for node in self.ddpTree.traverse_preorder():
                 self.tDown_update(node,self.Opt_function)
 
         def compute_distances(self):
@@ -51,10 +52,10 @@ class Tree_extend(object):
                 if node.is_leaf():
                     D[node.name] = cumm_l
                 else:
-                    for child in node.child_node_iter():
+                    for child in node.child_nodes():
                         __compute_dRoot__(child,cumm_l+child.edge_length)      
 
-            __compute_dRoot__(self.ddpTree.seed_node,0)
+            __compute_dRoot__(self.ddpTree.root,0)
             return D
 
         def compute_ingroup_distances(self):
@@ -63,10 +64,10 @@ class Tree_extend(object):
                 if node.is_leaf():
                     D.append(cumm_l)
                 else:
-                    for child in node.child_node_iter():
+                    for child in node.child_nodes():
                         __compute_dLeaf__(child,cumm_l+child.edge_length)      
 
-            children = self.ddpTree.seed_node.child_nodes()
+            children = self.ddpTree.root.child_nodes()
             crowded_child = None
             maxleaf = -1
 
@@ -107,14 +108,14 @@ class Tree_extend(object):
                 
                 p = node.parent_node
                 #if ( cumm_l > threshold ) or ( node.child_removed and len(node.child_nodes()) == 0 ):
-                if ( cumm_l > threshold ) or ( node.child_removed and node.num_child_nodes() == 0 ):
+                if ( cumm_l > threshold ) or ( node.child_removed and node.num_children() == 0 ):
                     # remove node
                     p.remove_child(node)
                     # update parent node
                     p.child_removed = True
                     removed = True
                     try:
-                        print(node.taxon.label + " removed")
+                        print(node.label + " removed")
                     except:
                         print(node.name + " removed")
                 #elif len(node.child_nodes()) == 1:
@@ -158,9 +159,9 @@ class Tree_extend(object):
          
             #d2currRoot = 0
             #br2currRoot = 0
-            if self.opt_root != self.ddpTree.seed_node:
+            if self.opt_root != self.ddpTree.root:
                 #d2currRoot,br2currRoot = self.reroot_at_edge(self.opt_root.edge, self.opt_root.edge_length-self.opt_x, self.opt_x)
-                self.reroot_at_edge(self.opt_root.edge, self.opt_root.edge_length-self.opt_x, self.opt_x)
+                self.reroot_at_edge(self.opt_root, self.opt_x)
             
             #return head_id, tail_id, edge_length, self.opt_x
             #return d2currRoot,br2currRoot
@@ -171,7 +172,7 @@ class Tree_extend(object):
 
         def tree_as_newick(self, outstream=sys.stdout, label_by_name = False):
         # dendropy's method to write newick seems to have problem ...
-            self.__write_newick(self.ddpTree.seed_node, outstream, label_by_name = label_by_name)
+            self.__write_newick(self.ddpTree.root, outstream, label_by_name = label_by_name)
             outstream.write(";\n")
 #            outstream.write(bytes(";\n", "ascii"))
 
@@ -182,8 +183,8 @@ class Tree_extend(object):
 #                    outstream.write(bytes(str(node.name), "ascii"))
                 else:
                     try:
-                        outstream.write(node.taxon.label)
-#                        outstream.write(bytes(node.taxon.label, "ascii"))
+                        outstream.write(node.label)
+#                        outstream.write(bytes(node.label, "ascii"))
                     except:
                         outstream.write(node.label)
 #                        outstream.write(bytes(str(node.label), "ascii"))
@@ -191,7 +192,7 @@ class Tree_extend(object):
                 outstream.write('(')
                 #outstream.write(bytes('(', "ascii"))
                 is_first_child = True
-                for child in node.child_node_iter():
+                for child in node.child_nodes():
                     if is_first_child:
                         is_first_child = False
                     else:
@@ -212,7 +213,10 @@ class Tree_extend(object):
                 outstream.write(":" + str(node.edge_length))
 #                outstream.write(bytes(":" + str(node.edge_length), "ascii"))
 
-        def reroot_at_edge(self, edge, length1, length2):
+        def reroot_at_edge(self, node, length):
+            self.ddpTree.reroot(node,node.edge_length-length)
+
+        '''
         # the method provided by dendropy DOESN'T seem to work ...
         # change edge to opt_root
             if not edge:
@@ -225,7 +229,8 @@ class Tree_extend(object):
             if (length2 == 0) and head.is_leaf():
                 return 0, 0
 
-            new_root = self.ddpTree.node_factory()
+            #new_root = self.ddpTree.node_factory()
+            new_root = Node()
             
             tail.remove_child(head)
 
@@ -241,12 +246,12 @@ class Tree_extend(object):
             br2currRoot = 0
             d2currRoot = length1
 
-#            if tail.label == self.ddpTree.seed_node.label:
-            if (tail is self.ddpTree.seed_node):
+#            if tail.label == self.ddpTree.root.label:
+            if (tail is self.ddpTree.root):
                 head = new_root
 
 
-            while tail is not self.ddpTree.seed_node:
+            while tail is not self.ddpTree.root:
 # MAD@ add
                 q = tail.parent_node
 # End MAD@ add
@@ -267,10 +272,10 @@ class Tree_extend(object):
                 tail.edge_length=l
                 l = l1
                 
-            # out of while loop: tail IS now tree.seed_node
+            # out of while loop: tail IS now tree.root
             if tail.num_child_nodes() == 1:
                 # merge the 2 branches of the old root and adjust the branch length
-                #sis = [child for child in tail.child_node_iter()][0]
+                #sis = [child for child in tail.child_nodes()][0]
                 sis = tail.child_nodes()[0]
                 l = sis.edge_length
                 tail.remove_child(sis)    
@@ -279,12 +284,12 @@ class Tree_extend(object):
                 head.remove_child(tail)
                 #tail.remove_child(head)
 
-            new_root.name = self.ddpTree.seed_node.name
-            self.ddpTree.seed_node.name = "OLD"
-            self.ddpTree.seed_node = new_root
+            new_root.name = self.ddpTree.root.name
+            self.ddpTree.root.name = "OLD"
+            self.ddpTree.root = new_root
 
 ### MAD@ add
-#            for node in self.ddpTree.postorder_node_iter():
+#            for node in self.ddpTree.traverse_postorder():
 #                for child in node.child_nodes():
 #                    if child.parent_node is not node:
 #                        print("Error found!")
@@ -292,9 +297,11 @@ class Tree_extend(object):
 ### MAD@ add
 
             return d2currRoot,br2currRoot
+            
+            '''
 
         def get_root(self):
-            return self.ddpTree.seed_node
+            return self.ddpTree.root
 
 class OGR_Tree(Tree_extend):
     # supportive class to implement outgroup-reroot (OGR = outgroup reroot, hence the name)
@@ -304,14 +311,14 @@ class OGR_Tree(Tree_extend):
         def __init__(self, outgroups ,ddpTree = None, tree_file = None, schema = "newick"):
             super(OGR_Tree,self).__init__(ddpTree, tree_file, schema)
             L = self.ddpTree.leaf_nodes()
-            self.OGs = set([ x.taxon.label for x in L if x.taxon.label in set(outgroups) ])
+            self.OGs = set([ x.label for x in L if x.label in set(outgroups) ])
             self.nOGs = len(self.OGs)
             self.nIGs = len(L) - self.nOGs
             self.max_nTrpls = self.nIGs*self.nOGs*(self.nOGs-1)/2 + self.nOGs*self.nIGs*(self.nIGs-1)/2
             self.reset()
 
         def reset(self):
-            self.opt_root = self.ddpTree.seed_node    
+            self.opt_root = self.ddpTree.root
             self.opt_nTrpls = 0
 
         def Node_init(self, node, nTrpl_in=0, nTrpl_out = 0, nOGs = 0, nIGs = 0): 
@@ -329,7 +336,7 @@ class OGR_Tree(Tree_extend):
                 
         def bUp_update(self,node):
             if node.is_leaf():
-                node.nOGs = 1 if node.taxon.label in self.OGs else 0               
+                node.nOGs = 1 if node.label in self.OGs else 0
                 node.nIGs = 1 if node.nOGs == 0 else 0
             else:
                 C = node.child_nodes()
@@ -382,7 +389,7 @@ class MPR_Tree(Tree_extend):
 
         def reset(self):
             self.max_distance = -1
-            self.opt_root = self.ddpTree.seed_node
+            self.opt_root = self.ddpTree.root
             self.opt_x = 0
 
         def Node_init(self, node, max_in = None, max_out = -1):
@@ -402,12 +409,12 @@ class MPR_Tree(Tree_extend):
         def bUp_update(self, node):
             if not node.is_leaf():
                 node.max_in=[]
-                for child in node.child_node_iter():
+                for child in node.child_nodes():
                     node.max_in.append(max(child.max_in) + child.edge_length)    
         
         def tDown_update(self, node, opt_function):
             child_idx = 0
-            for child in node.child_node_iter():
+            for child in node.child_nodes():
                 child.max_out = max([node.max_out] + [node.max_in[k] for k in range(len(node.max_in))
                                 if k != child_idx]) + child.edge_length
                 opt_function(child)
@@ -434,7 +441,7 @@ class minVAR_Base_Tree(Tree_extend):
 
         def reset(self):
             self.minVAR = None
-            self.opt_root = self.ddpTree.seed_node
+            self.opt_root = self.ddpTree.root
             self.opt_x = 0
 
         def Node_init(self, node, nleaf = 1, sum_in = 0, sum_total = 0, var=-1):
@@ -453,7 +460,7 @@ class minVAR_Base_Tree(Tree_extend):
                     cumm['ssq'] += cumm_l**2
                     cumm['sum'] += cumm_l
                 else:
-                    for child in node.child_node_iter():
+                    for child in node.child_nodes():
                         compute_dRoot(child, cumm_l + child.edge_length)
 
             compute_dRoot(self.get_root(), 0)
@@ -468,7 +475,7 @@ class minVAR_Base_Tree(Tree_extend):
             else:
                 node.nleaf = 0
                 node.sum_in = 0
-                for child in node.child_node_iter():
+                for child in node.child_nodes():
                     node.nleaf += child.nleaf
                     node.sum_in += child.sum_in + child.nleaf * child.edge_length
         
@@ -482,7 +489,7 @@ class minVAR_Base_Tree(Tree_extend):
             return a, b, c
     
         def tDown_update(self, node, opt_function):
-            for child in node.child_node_iter():    
+            for child in node.child_nodes():
                 child.sum_total = node.sum_total + (self.total_leaves - 2 * child.nleaf) * child.edge_length
                 a, b, c = self.Update_var(child, node, child.edge_length)
                 opt_function(child, a, b, c)
@@ -662,7 +669,7 @@ class MBR_Tree(Tree_extend):
             super(MBR_Tree,self).__init__(ddpTree, tree_file, schema)
 
             self.BPs = [] # BPs : balance points
-            self.opt_root = self.ddpTree.seed_node
+            self.opt_root = self.ddpTree.root
             self.opt_x = 0
 
         def Node_init(self, node, nleaf = 1, sum_in = 0, sum_out=-1):
@@ -689,13 +696,13 @@ class MBR_Tree(Tree_extend):
                 node.nleaf = 1
             else:
                 node.nleaf = 0
-                for child in node.child_node_iter():
+                for child in node.child_nodes():
                     node.nleaf += child.nleaf
                     node.sum_in += child.sum_in + child.nleaf*child.edge_length
 
         def tDown_update(self, node, opt_function):
             child_idx = 0
-            for child in node.child_node_iter():    
+            for child in node.child_nodes():
                 child.sum_out = (node.sum_out + node.sum_in + child.edge_length * 
                                 (self.total_leaves - 2*child.nleaf) - child.sum_in)
                 opt_function(child)
@@ -717,7 +724,7 @@ class MBR_Tree(Tree_extend):
  
             for (node,x,mean) in self.BPs:
                 if node.is_leaf():
-  #                  print(node.taxon.label + "\t" + str(x) + "\t" + str(mean))
+  #                  print(node.label + "\t" + str(x) + "\t" + str(mean))
                     print(node.label + "\t" + str(x) + "\t" + str(mean))
                 else:
                     print(node.label + "\t" + str(x) + "\t" + str(mean))
@@ -733,18 +740,18 @@ class MBR_Tree(Tree_extend):
             self.balance_tree = self.ddpTree.extract_tree()
             
             # bottom up pruning
-            for node in self.balance_tree.postorder_node_iter():    
+            for node in self.balance_tree.traverse_postorder():
                 node.type = "real"
                 node.BPbelow = False
                 
                 '''if node.is_leaf():
-                    print("parent: " + node.taxon.label)# + "\t" + str(node.extraction_source.x))
+                    print("parent: " + node.label)# + "\t" + str(node.extraction_source.x))
                 else:
                     print("parent: " + node.label)#+ "\t" + str(node.extraction_source.x))'''
 
                 for ch in node.child_nodes():
                     '''try:
-                        print("child: " + ch.taxon.label)# + "\t" + str(ch.extraction_source.x))
+                        print("child: " + ch.label)# + "\t" + str(ch.extraction_source.x))
                     except:
                         print("child: " + ch.label) #+ "\t" + str(ch.extraction_source.x))'''
                     
@@ -754,7 +761,7 @@ class MBR_Tree(Tree_extend):
 
                     if not ch.BPbelow:
                         # remove the whole clade under ch
-                        #for ch1 in ch.child_node_iter():
+                        #for ch1 in ch.child_nodes():
                         #    ch.remove_child(ch1)
                         edgelen = ch.edge_length
                         node.remove_child(ch)
@@ -765,8 +772,10 @@ class MBR_Tree(Tree_extend):
                             # add a new node ch1 to be another child of p (edge length ch.mean) 
                             edgelen = ch.edge_length
 
-                            p = self.ddpTree.node_factory()
-                            ch1 = self.ddpTree.node_factory()
+                            #p = self.ddpTree.node_factory()
+                            #ch1 = self.ddpTree.node_factory()
+                            p = Node()
+                            ch1 = Node()
 
                             p.type = "bp" # bp: balance-point
                             p.ref_child = ch.extraction_source # link p to the original tree (for later use after finding midpoint)
@@ -787,8 +796,10 @@ class MBR_Tree(Tree_extend):
                         
                         edgelen = ch.edge_length
 
-                        p = self.ddpTree.node_factory()
-                        ch1 = self.ddpTree.node_factory()
+                        #p = self.ddpTree.node_factory()
+                        p = Node()
+                        #ch1 = self.ddpTree.node_factory()
+                        ch1 = Node()
 
                         p.type = "bp"
                         p.ref_child = ch.extraction_source # link p to the original tree (for later use after finding midpoint)
@@ -804,7 +815,7 @@ class MBR_Tree(Tree_extend):
                         ch1.edge_length = ch.extraction_source.mean 
 
             # topdown pruning
-            node = self.balance_tree.seed_node
+            node = self.balance_tree.root
             nchild = len(node.child_nodes())
             while nchild > 0 and nchild < 2:
                 # node has less than 2 children
@@ -816,9 +827,9 @@ class MBR_Tree(Tree_extend):
                     break
                 nchild = len(node.child_nodes())
 
-            self.balance_tree.seed_node = node
-            self.balance_tree.seed_node.edge_length = None
-            #balance_tree.seed_node.edge = None
+            self.balance_tree.root = node
+            self.balance_tree.root.edge_length = None
+            #balance_tree.root = None
            
             #mptre = MPR_Tree(ddpTree=balance_tree)
             #mptre.tree_as_newick()

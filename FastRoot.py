@@ -50,10 +50,7 @@ for line in args.input:
     else:
         a_tree = METHOD2FUNC[args.method](ddpTree=tree)
 
-    #a_tree.Bottomup_update()
-    #a_tree.prepare_root() ########
     a_tree.Reroot()
-    #print(a_tree.report_score())
 
     if args.infofile:
         args.infofile.write(a_tree.report_score() + "\n")
